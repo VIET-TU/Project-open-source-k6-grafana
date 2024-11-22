@@ -1,0 +1,123 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: k6-nodejs-config
+data:
+  node-load-test.js: |
+    import http from "k6/http";
+    import { check, group, sleep } from "k6";
+    import { htmlReport } from "https://raw.githubusercontent.com/benc-uk/k6-reporter/main/dist/bundle.js";
+
+    export let options = {
+      stages: [
+        { duration: "10s", target: 500 }, // 1 phút, 50 người dùng
+        { duration: "1m", target: 2000 }, // 2 phút, tăng lên 500 người dùng
+        { duration: "1m", target: 1000 }, // 1 phút, giảm về 50 người dùng
+        { duration: "10s", target: 0 }, // 1 phút, giảm về 0 người dùng
+      ],
+    };
+
+    export default function () {
+      let baseUrl = __ENV.BASE_URL || "http://127.0.0.1:3001";
+
+      group("Load test group", () => { // Create post
+        let res = http.post(
+          `${baseUrl}/post`,
+          JSON.stringify({
+            title: "First Post",
+            content: "The first post made",
+          }),
+          {
+            headers: { "Content-Type": "application/json" },
+            tags: { name: "CreateResource" },
+          }
+        );
+        check(res, {
+          "status is 201": (r) => r.status === 201, // kiểm cha thành công
+          "resource created": (r) => r.json("id") !== "", // phải có id trả về mới thành công
+        });
+
+        let resourceId = res.json("id");
+        sleep(1);
+
+        res = http.get(`${baseUrl}/post/${resourceId}`, { // get pod by id
+          tags: { name: "GetResource" },
+        });
+        check(res, {
+          "status is 200": (r) => r.status === 200,
+          "resource id matches": (r) => r.json("id") === resourceId,
+        });
+        sleep(1);
+
+        res = http.patch( // update post by id
+          `${baseUrl}/post/${resourceId}`,
+          JSON.stringify({
+            title: "Updated Resource",
+            content: "Updated value",
+          }),
+          {
+            headers: { "Content-Type": "application/json" },
+            tags: { name: "UpdateResource" },
+          }
+        );
+        check(res, {
+          "status is 200": (r) => r.status === 200,
+          "resource updated": (r) => r.json("affected") === 1, // affected là trường trả về khi update thành công
+        });
+        sleep(1);
+
+        res = http.del(`${baseUrl}/post/${resourceId}`, null, {
+          headers: { "Content-Type": "application/json" },
+          tags: { name: "DeleteResource" },
+        });
+        check(res, {
+          "status is 200": (r) => r.status === 200,
+          "resource delete": (r) => r.json("affected") === 1,
+        });
+        sleep(1);
+      });
+    }
+
+    export function handleSummary(data) {
+      return {
+        "/report/summary.html": htmlReport(data), // xuất báo cáo ra file dạng file html
+      };
+    }
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: k6-nodejs
+spec:
+  restartPolicy: Never
+  containers:
+    - name: k6
+      image: loadimpact/k6
+      env:
+        - name: BASE_URL
+          value: "http://nodejs.default.svc.cluster.local:3001" # dns của pod nodejs
+      command: 
+        - "/bin/sh"
+        - "-c"
+        - |
+          apk update && apk --no-cache add curl && \
+          k6 run /performace_testing_script/node-load-test.js && \
+          curl -F "chat_id=-4288739311" \
+               -F 'media=[{"type": "document", "media": "attach://file1"}]' \
+               -F "file1=@/report/summary.html" \
+               "https://api.telegram.org/${BOT_ID}:${BOT_TOKEN}/sendMediaGroup"
+      resources: {}
+      volumeMounts:
+        - name: k6-script-volume
+          mountPath: /performace_testing_script
+        - name: writable-volume
+          mountPath: /report
+      securityContext:
+        runAsUser: 0  # run với user root
+        runAsGroup: 0 
+  volumes:
+    - name: k6-script-volume
+      configMap:
+        name: k6-nodejs-config
+    - name: writable-volume
+      emptyDir: {}

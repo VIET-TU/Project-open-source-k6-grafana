@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nodejs
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nodejs
+  template:
+    metadata:
+      labels:
+        app: nodejs
+    spec:
+      containers:
+        - image: viettu123/nodejs-k6-grafana:v1
+          name: nodejs
+          env:
+          - name: DATABASE_HOST
+            value: "postgres-0.postgres.default.svc.cluster.local"
+          ports:
+            - containerPort: 3001
+              name: tcp
+              protocol: TCP
+          
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nodejs
+spec:
+  selector:
+    app: nodejs
+  type: NodePort
+  ports:
+    - port: 3001
+      targetPort: 3001
+      nodePort: 31000
+---
+# apiVersion: networking.k8s.io/v1
+# kind: Ingress
+# metadata:
+#   name: demo-ingress
+#   annotations:
+#     alb.ingress.kubernetes.io/scheme: internet-facing
+#     alb.ingress.kubernetes.io/target-type: ip
+# spec:
+#   ingressClassName: alb
+#   rules:
+#     - host:
+#       http:
+#         paths:
+#           - pathType: Prefix
+#             path: /api
+#             backend:
+#               service:
+#                 name: nodejs
+#                 port:
+#                   number: 3000

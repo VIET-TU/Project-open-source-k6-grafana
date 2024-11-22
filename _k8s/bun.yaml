@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bunjs
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bunjs
+  template:
+    metadata:
+      labels:
+        app: bunjs
+    spec:
+      initContainers:
+        - name: prisma-migrate
+          image: viettu123/bun-k6-grafana:v2
+          env:
+          - name: DATABASE_URL
+            value: "postgresql://postgres:viettu@postgres-0.postgres.default.svc.cluster.local:5432/postgres?schema=public"
+          command: ["sh", "-c", "yes | bunx prisma migrate dev --name create"]
+      containers:
+        - image: viettu123/bun-k6-grafana:v2
+          name: bunjs
+          env:
+          - name: DATABASE_URL
+            value: "postgresql://postgres:viettu@postgres-0.postgres.default.svc.cluster.local:5432/postgres?schema=public"
+          ports:
+            - containerPort: 3000
+              name: tcp
+              protocol: TCP
+
+          
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bunjs
+spec:
+  selector:
+    app: bunjs
+  type: NodePort
+  ports:
+    - port: 3000
+      targetPort: 3000
+      nodePort: 30000
